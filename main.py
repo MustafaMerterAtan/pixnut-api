@@ -9,8 +9,9 @@ from pydantic import BaseModel
 from PIL import Image
 import gdown
 
-# Keras 3 kullan
+# Keras 3 kullan - TensorFlow'un kendi Keras'ını değil, standalone Keras 3'ü kullan
 os.environ['TF_USE_LEGACY_KERAS'] = '0'
+import keras
 
 app = FastAPI(
     title="PixNut Food Analysis API",
@@ -71,7 +72,6 @@ def download_model_from_drive():
 def load_model():
     """Model ve istatistikleri yükle"""
     global MODEL, TARGET_STATS, IMG_SIZE
-    import keras
     
     # Önce modeli indir
     download_model_from_drive()
