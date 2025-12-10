@@ -3,6 +3,7 @@ import json
 import zipfile
 import numpy as np
 from io import BytesIO
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,10 +14,24 @@ import gdown
 os.environ['TF_USE_LEGACY_KERAS'] = '0'
 import keras
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        load_model()
+    except Exception as e:
+        print(f"Model yükleme hatası: {e}")
+        import traceback
+        traceback.print_exc()
+    yield
+    # Shutdown
+    pass
+
 app = FastAPI(
     title="PixNut Food Analysis API",
     description="Yemek fotoğraflarından besin değeri tahmini yapan API",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS ayarları
@@ -144,16 +159,6 @@ def inverse_transform(predictions: np.ndarray) -> dict:
         result[col] = max(0, float(val))
     return result
 
-@app.on_event("startup")
-async def startup_event():
-    """Uygulama başladığında modeli yükle"""
-    try:
-        load_model()
-    except Exception as e:
-        print(f"Model yükleme hatası: {e}")
-        import traceback
-        traceback.print_exc()
-
 @app.get("/")
 async def root():
     return {"message": "PixNut Food Analysis API", "status": "running"}
@@ -168,6 +173,8 @@ async def health_check():
 
 @app.post("/predict", response_model=NutritionResponse)
 async def predict_nutrition(file: UploadFile = File(...)):
+    import gc
+    
     if MODEL is None:
         raise HTTPException(status_code=503, detail="Model henüz yüklenmedi")
     
@@ -181,6 +188,10 @@ async def predict_nutrition(file: UploadFile = File(...)):
         predictions = MODEL.predict(img_array, verbose=0)
         nutrition = inverse_transform(predictions)
         
+        # Bellek temizliği
+        del contents, image, img_array, predictions
+        gc.collect()
+        
         return NutritionResponse(
             success=True,
             kcal=round(nutrition.get('kcal', 0), 1),
@@ -191,6 +202,7 @@ async def predict_nutrition(file: UploadFile = File(...)):
             message="Besin değerleri başarıyla tahmin edildi"
         )
     except Exception as e:
+        gc.collect()
         raise HTTPException(status_code=500, detail=f"Tahmin hatası: {str(e)}")
 
 if __name__ == "__main__":
